@@ -1,6 +1,7 @@
-# Code owners for development branch - talentradar-api-gateway-rw
-# .github folder is managed by bikaze and muhirwaJD
-/.github/ @bikaze @muhirwaJD
+# Code owners for talentradar-api-gateway-rw
+# Global owners for all files (except .github/)
+*  @nccharles @ishimweeli @nkbtemmy2 @bumlev
 
-# Everything else is managed by all four backend code owners
-* @nccharles @ishimweeli @nkbtemmy2 @bumlev
+# GitHub folder specific owners
+.github/ @bikaze @muhirwaJD
+
