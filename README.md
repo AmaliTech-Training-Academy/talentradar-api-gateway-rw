@@ -1,6 +1,6 @@
 # Talent Radar API Gateway
 
-A Spring Cloud Gateway-based API Gateway for the Talent Radar AI-driven talent management system.
+A Spring Cloud Gateway-based API Gateway for the Talent Radar AI-driven talent management system
 
 ## Overview
 
