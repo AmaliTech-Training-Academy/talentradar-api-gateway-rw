@@ -1,7 +1,0 @@
-[0;34m[INFO][0m Removing existing .git directory in talentradar-api-gateway-rw
-[0;32m[SUCCESS][0m Removed existing .git directory in talentradar-api-gateway-rw
-[0;34m[INFO][0m Initializing new Git repository in talentradar-api-gateway-rw
-[0;32m[SUCCESS][0m Initialized new Git repository in talentradar-api-gateway-rw
-[0;34m[INFO][0m Adding remote origin: git@github.com:AmaliTech-Training-Academy/talentradar-api-gateway-rw.git
-[0;32m[SUCCESS][0m Added remote origin for talentradar-api-gateway-rw
-[0;34m[INFO][0m Adding all files to Git in talentradar-api-gateway-rw
