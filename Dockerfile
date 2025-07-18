@@ -1,19 +1,42 @@
-# Perform the extraction in a separate builder container
-FROM bellsoft/liberica-openjre-debian:24-cds AS builder
+# Build stage: Compile the application
+FROM maven:3.9-eclipse-temurin-21 AS builder
 
-WORKDIR /builder
+WORKDIR /build
 
-ARG JAR_FILE=target/*.jar
-COPY ${JAR_FILE} application.jar
-RUN java -Djarmode=tools -jar application.jar extract --layers --destination extracted
+# Copy pom.xml first for better caching
+COPY pom.xml .
+# Download dependencies (will be cached if pom.xml doesn't change)
+RUN mvn dependency:go-offline -B
 
-FROM bellsoft/liberica-openjre-debian:24-cds
+# Copy source code
+COPY src ./src/
+
+# Build the application
+RUN mvn package -DskipTests
+
+# Runtime stage: Setup the actual runtime environment
+FROM bellsoft/liberica-openjre-debian:21-cds
+
+# Add metadata
+LABEL maintainer="AmaliTech Training Academy" \
+    description="TalentRadar API Gateway" \
+    version="1.0"
+
+# Set default environment variables (can be overridden at runtime)
+ENV SPRING_PROFILES_ACTIVE=production
+ENV SERVER_PORT=8080
+
+# Create a non-root user
+RUN useradd -r -u 1001 -g root apigateway
 
 WORKDIR /application
 
-COPY --from=builder /builder/extracted/dependencies/ ./
-COPY --from=builder /builder/extracted/spring-boot-loader/ ./
-COPY --from=builder /builder/extracted/snapshot-dependencies/ ./
-COPY --from=builder /builder/extracted/application/ ./
+# Copy the extracted layers from the build stage
+COPY --from=builder --chown=apigateway:root /build/target/*.jar ./application.jar
 
-ENTRYPOINT ["java", "-jar", "application.jar"]
+# Configure container
+USER 1001
+EXPOSE 8080
+
+# Use the standard JAR execution
+ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-XX:MaxRAMPercentage=75.0", "-Djava.security.egd=file:/dev/./urandom", "-jar", "application.jar"]
