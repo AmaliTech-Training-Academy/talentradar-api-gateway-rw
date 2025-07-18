@@ -1,7 +1,7 @@
-# TalentRadar API Gateway - AWS ECR Deployment Workflow
-# This workflow builds and deploys the API Gateway Docker image to Amazon ECR when there's a merge to development, staging, or production branches
+# Generic Application - AWS ECR Deployment Workflow
+# This workflow builds and deploys a Docker image to Amazon ECR when there's a merge to development, staging, or production branches
 
-name: Deploy API Gateway to AWS ECR
+name: Deploy Application to AWS ECR
 
 on:
   push:
@@ -31,12 +31,7 @@ jobs:
       AWS_REGION: ${{ secrets.AWS_REGION }}
       ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
       ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
-      ECS_SERVICE: ${{ secrets.ECS_SERVICE }}
-      ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
-      CONTAINER_NAME: ${{ secrets.CONTAINER_NAME }}
       ENV_NAME: ${{ github.event.inputs.environment || (github.ref == 'refs/heads/staging' && 'staging') || (github.ref == 'refs/heads/production' && 'production') || 'development' }}
-      AWS_RETRY_MODE: adaptive
-      AWS_MAX_ATTEMPTS: 5
 
     steps:
       - name: Checkout
@@ -48,10 +43,9 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
-          retry-max-attempts: 5
 
       - name: Test AWS permissions and connectivity
-        run: |
+        run: |    
           echo "=== Testing AWS Permissions and Connectivity ==="
 
           # Test basic AWS connectivity
@@ -64,23 +58,6 @@ jobs:
           echo "2. Testing ECR permissions..."
           aws ecr describe-repositories --repository-names $ECR_REPOSITORY --region $AWS_REGION > /dev/null || {
             echo "❌ Failed to access ECR repository: $ECR_REPOSITORY"
-            exit 1
-          }
-
-          echo "3. Testing ECS permissions..."
-          aws ecs describe-clusters --clusters $ECS_CLUSTER --region $AWS_REGION > /dev/null || {
-            echo "❌ Failed to access ECS cluster: $ECS_CLUSTER"
-            exit 1
-          }
-
-          aws ecs describe-services --cluster $ECS_CLUSTER --services $ECS_SERVICE --region $AWS_REGION > /dev/null || {
-            echo "❌ Failed to access ECS service: $ECS_SERVICE"
-            exit 1
-          }
-
-          echo "4. Testing IAM permissions for ECS task definitions..."
-          aws ecs list-task-definitions --region $AWS_REGION --max-items 1 > /dev/null || {
-            echo "❌ Failed to list task definitions"
             exit 1
           }
 
@@ -132,24 +109,9 @@ jobs:
           # Also tag as latest for local reference
           docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$UNIQUE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-          # Push with enhanced retry logic
-          echo "Pushing image with retry logic..."
-          for attempt in 1 2 3 4 5; do
-            echo "Push attempt $attempt/5 for unique tag: $UNIQUE_TAG"
-            
-            if docker push $ECR_REGISTRY/$ECR_REPOSITORY:$UNIQUE_TAG; then
-              echo "✅ Successfully pushed unique tag on attempt $attempt"
-              break
-            else
-              echo "❌ Push failed on attempt $attempt"
-              if [ $attempt -eq 5 ]; then
-                echo "❌ All push attempts failed"
-                exit 1
-              fi
-              echo "Waiting 30 seconds before retry..."
-              sleep 30
-            fi
-          done
+          # Push image to ECR
+          echo "Pushing image to ECR..."
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$UNIQUE_TAG
 
           # Try to push latest, but don't fail if it already exists
           echo "Attempting to push latest tag (may fail if immutable)..."
@@ -218,4 +180,4 @@ jobs:
           echo "ECR Repository: $ECR_REGISTRY/$ECR_REPOSITORY"
           echo ""
           echo "✅ Docker image successfully built and pushed to ECR"
-          echo "✅ Deployment to ECR completed for $ENV_NAME environment"
+          echo "✅ Application deployment to ECR completed for $ENV_NAME environment"
