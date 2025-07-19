@@ -1,6 +1,4 @@
-# Generic Application - AWS ECR Deployment Workflow
-# This workflow builds and deploys a Docker image to Amazon ECR when there's a merge to development, staging, or production branches
-
+# AWS ECR Deployment Workflow
 name: Deploy Application to AWS ECR
 
 on:
@@ -20,7 +18,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write # Required for requesting the JWT
+  id-token: write
 
 jobs:
   deploy:
@@ -44,140 +42,37 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Test AWS permissions and connectivity
+      - name: Test AWS permissions
         run: |    
-          echo "=== Testing AWS Permissions and Connectivity ==="
-
-          # Test basic AWS connectivity
-          echo "1. Testing AWS STS (Security Token Service)..."
+          echo "=== Testing AWS Permissions ==="
           aws sts get-caller-identity --region $AWS_REGION || {
             echo "❌ Failed to get AWS caller identity"
             exit 1
           }
-
-          echo "2. Testing ECR permissions..."
           aws ecr describe-repositories --repository-names $ECR_REPOSITORY --region $AWS_REGION > /dev/null || {
-            echo "❌ Failed to access ECR repository: $ECR_REPOSITORY"
+            echo "❌ Failed to access ECR repository"
             exit 1
           }
-
-          echo "✅ All AWS permissions and connectivity tests passed"
-
-          # Show current AWS service health (if available)
-          echo ""
-          echo "=== AWS Service Information ==="
-          echo "AWS Region: $AWS_REGION"
-          echo "Current AWS Identity:"
-          aws sts get-caller-identity --region $AWS_REGION
+          echo "✅ AWS permissions OK"
 
       - name: Login to Amazon ECR
-        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Check ECR repository configuration
+      - name: Build and push image
         run: |
-          echo "=== ECR Repository Information ==="
-          aws ecr describe-repositories \
-            --repository-names $ECR_REPOSITORY \
-            --region $AWS_REGION \
-            --query 'repositories[0].{Name:repositoryName,ImageTagMutability:imageTagMutability,RepositoryUri:repositoryUri}' \
-            --output table
+          # Extract service name from repository name (remove talentradar- prefix and -rw suffix)
+          REPO_NAME=$(echo "${{ github.event.repository.name }}" | sed 's/talentradar-//' | sed 's/-rw$//' | tr '_' '-')
+          
+          # Build simple service name for image
+          SERVICE_NAME="${REPO_NAME}:latest"
+          
+          echo "Building image: $ECR_REGISTRY/$ECR_REPOSITORY:latest"
+          
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            --build-arg SPRING_PROFILES_ACTIVE=$ENV_NAME .
 
-          echo ""
-          echo "Current images in repository:"
-          aws ecr list-images \
-            --repository-name $ECR_REPOSITORY \
-            --region $AWS_REGION \
-            --query 'imageIds[*].imageTag' \
-            --output table || echo "No existing images found"
-
-      - name: Build, tag, and push image to Amazon ECR
-        id: build-image
-        run: |
-          # Create unique tag using timestamp and commit SHA
-          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          COMMIT_SHA=$(echo ${{ github.sha }} | cut -c1-8)
-          UNIQUE_TAG="${ENV_NAME}-${TIMESTAMP}-${COMMIT_SHA}"
-
-          echo "Building image with unique tag: $UNIQUE_TAG"
-
-          # Build docker container with unique tag
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$UNIQUE_TAG \
-            --build-arg SPRING_PROFILES_ACTIVE=$ENV_NAME \
-            .
-
-          # Also tag as latest for local reference
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$UNIQUE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-
-          # Push image to ECR
           echo "Pushing image to ECR..."
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$UNIQUE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-          # Try to push latest, but don't fail if it already exists
-          echo "Attempting to push latest tag (may fail if immutable)..."
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest || echo "Latest tag push failed (likely immutable repo) - continuing with unique tag"
+          echo "✅ Image pushed: $ECR_REGISTRY/$ECR_REPOSITORY:latest"
 
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$UNIQUE_TAG" >> $GITHUB_OUTPUT
-          echo "unique_tag=$UNIQUE_TAG" >> $GITHUB_OUTPUT
-
-      - name: Clean up old ECR images (keep latest 5 per environment)
-        run: |
-          echo "Cleaning up old ECR images for environment: $ENV_NAME"
-
-          # Get all images for this environment using a simpler approach
-          echo "Fetching images for environment: $ENV_NAME"
-
-          # First, get all image tags that match our environment pattern
-          ENV_TAGS=$(aws ecr list-images \
-            --repository-name $ECR_REPOSITORY \
-            --region $AWS_REGION \
-            --query "imageIds[?starts_with(imageTag, '$ENV_NAME-')].imageTag" \
-            --output text)
-
-          if [ -z "$ENV_TAGS" ] || [ "$ENV_TAGS" = "None" ]; then
-            echo "No images found for environment: $ENV_NAME"
-          else
-            echo "Found images for environment $ENV_NAME:"
-            echo "$ENV_TAGS"
-            
-            # Count how many images we have
-            IMAGE_COUNT=$(echo "$ENV_TAGS" | wc -w)
-            echo "Total images for $ENV_NAME: $IMAGE_COUNT"
-            
-            # If we have more than 5 images, delete the oldest ones
-            if [ "$IMAGE_COUNT" -gt 5 ]; then
-              echo "Need to clean up $(($IMAGE_COUNT - 5)) old images"
-              
-              # Sort tags by timestamp (they include timestamp in format YYYYMMDD-HHMMSS)
-              # Keep only the 5 newest, delete the rest
-              TAGS_TO_DELETE=$(echo "$ENV_TAGS" | tr ' ' '\n' | sort | head -n $(($IMAGE_COUNT - 5)))
-              
-              if [ ! -z "$TAGS_TO_DELETE" ]; then
-                echo "Tags to delete:"
-                echo "$TAGS_TO_DELETE"
-                
-                # Delete each tag
-                for tag in $TAGS_TO_DELETE; do
-                  echo "Deleting image with tag: $tag"
-                  aws ecr batch-delete-image \
-                    --repository-name $ECR_REPOSITORY \
-                    --region $AWS_REGION \
-                    --image-ids imageTag=$tag || echo "Failed to delete $tag (continuing...)"
-                done
-                echo "✅ Cleanup completed"
-              fi
-            else
-              echo "Only $IMAGE_COUNT images found, no cleanup needed (keeping up to 5)"
-            fi
-          fi
-
-      - name: Deployment summary
-        run: |
-          echo "=== Deployment Summary ==="
-          echo "Environment: $ENV_NAME"
-          echo "Image URI: ${{ steps.build-image.outputs.image }}"
-          echo "Unique Tag: ${{ steps.build-image.outputs.unique_tag }}"
-          echo "ECR Repository: $ECR_REGISTRY/$ECR_REPOSITORY"
-          echo ""
-          echo "✅ Docker image successfully built and pushed to ECR"
-          echo "✅ Application deployment to ECR completed for $ENV_NAME environment"
