@@ -6,3 +6,13 @@ spring:
   cloud:
     config:
       uri: ${SPRING_CLOUD_CONFIG_URI}
+
+# Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: always
