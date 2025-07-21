@@ -16,7 +16,7 @@ public class GlobalExceptionHandler {
     // Handle all other exceptions
     @ExceptionHandler(Exception.class)
     public ResponseEntity<?> handleUnexpectedException
-    (Exception exception, WebRequest webRequest) {
+    (Exception exception) {
         ResponseDto response = ResponseDto.builder()
                 .status(false)
                 .message("Unexpected Exception")
