@@ -73,7 +73,18 @@ public class SessionValidationFilter implements GlobalFilter, Ordered {
         ServerHttpResponse response = exchange.getResponse();
         response.setStatusCode(HttpStatus.UNAUTHORIZED);
         response.getHeaders().add("Content-Type", "application/json");
-        String body = "{\"error\": \"" + message + "\"}";
+        String body = """
+            {
+              "status": false,
+              "message": "Unauthorized",
+              "data": null,
+              "errors": [
+                {
+                  "message": "You need to login first!"
+                }
+              ]
+            }
+        """;
         DataBuffer buffer = response.bufferFactory().wrap(body.getBytes(StandardCharsets.UTF_8));
         return response.writeWith(Mono.just(buffer));
     }
