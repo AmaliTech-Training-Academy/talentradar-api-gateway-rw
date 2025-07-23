@@ -25,6 +25,7 @@ public class SessionValidationFilter implements GlobalFilter, Ordered {
 
     private static final List<String> PUBLIC_PATHS = List.of(
             "/api/v1/auth/login",
+            "/api/v1/auth/complete-registration",
             "/swagger",
             "/v3/api-docs",
             "/actuator"
