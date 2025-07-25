@@ -25,6 +25,7 @@ public class SessionValidationFilter implements GlobalFilter, Ordered {
 
     private static final List<String> PUBLIC_PATHS = List.of(
             "/api/v1/auth/login",
+            "/api/v1/auth/complete-registration",
             "/swagger",
             "/v3/api-docs",
             "/actuator"
@@ -38,7 +39,6 @@ public class SessionValidationFilter implements GlobalFilter, Ordered {
     public Mono<Void> filter(ServerWebExchange exchange, org.springframework.cloud.gateway.filter.GatewayFilterChain chain) {
         String requestPath = exchange.getRequest().getURI().getPath();
 
-        // Skip validation for public paths
         if (isPublicPath(requestPath)) {
             return chain.filter(exchange);
         }
@@ -49,9 +49,16 @@ public class SessionValidationFilter implements GlobalFilter, Ordered {
             return unauthorized(exchange, "Missing session cookie");
         }
 
-        String sessionId = new String(Base64.getDecoder().decode(sessionCookie.getValue()));
+        String sessionId;
+        try {
+            sessionId = new String(Base64.getDecoder().decode(sessionCookie.getValue()));
+        } catch (IllegalArgumentException e) {
+            logger.error("Invalid session ID encoding", e);
+            return unauthorized(exchange, "Invalid session ID");
+        }
+
         String redisKey = "spring:session:sessions:" + sessionId;
-        System.out.println("ID "+sessionId);
+        logger.info("Checking session ID: {}", sessionId);
 
         return redisOperations.hasKey(redisKey)
                 .flatMap(exists -> {
@@ -59,9 +66,12 @@ public class SessionValidationFilter implements GlobalFilter, Ordered {
                         logger.info("Session is revoked or expired: {}", sessionId);
                         return unauthorized(exchange, "Session is revoked or expired");
                     }
-
                     logger.debug("Session valid: {}", sessionId);
                     return chain.filter(exchange);
+                })
+                .onErrorResume(ex -> {
+                    logger.error("Redis unreachable, skipping session validation for path {}", requestPath, ex);
+                    return chain.filter(exchange); // <--- allow the request through
                 });
     }
 
@@ -73,6 +83,7 @@ public class SessionValidationFilter implements GlobalFilter, Ordered {
         ServerHttpResponse response = exchange.getResponse();
         response.setStatusCode(HttpStatus.UNAUTHORIZED);
         response.getHeaders().add("Content-Type", "application/json");
+
         String body = """
             {
               "status": false,
@@ -80,17 +91,18 @@ public class SessionValidationFilter implements GlobalFilter, Ordered {
               "data": null,
               "errors": [
                 {
-                  "message": "You need to login first!"
+                  "message": "%s"
                 }
               ]
             }
-        """;
+            """.formatted(message);
+
         DataBuffer buffer = response.bufferFactory().wrap(body.getBytes(StandardCharsets.UTF_8));
         return response.writeWith(Mono.just(buffer));
     }
 
     @Override
     public int getOrder() {
-        return -2; // Run before JwtFilter (-1)
+        return -2;
     }
 }
